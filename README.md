@@ -1,4 +1,4 @@
-# Minimal Countdown Timer
+# <img src="./assets/icon.png" width="40" height="38" /> Minimal Countdown Timer
 
 A beautiful, distraction-free countdown timer built with React Native and Expo. Designed for deep focus and ease of use.
 
