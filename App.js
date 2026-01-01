@@ -9,7 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import useTimer, { TIMER_STATES } from './src/hooks/useTimer';
-import useAudio, { AUDIO_OPTIONS } from './src/hooks/useAudio';
+import useAudio from './src/hooks/useAudio';
 import TimerDisplay from './src/components/TimerDisplay';
 import Controls from './src/components/Controls';
 import { registerBackgroundFetchAsync } from './src/services/BackgroundTasks';
@@ -35,7 +35,7 @@ const THEMES = [
 
 export default function App() {
   const { minutes, seconds, setMinutes, setSeconds, status, start, pause, reset, adjustTime } = useTimer();
-  const { playSound, selectedOption, setSelectedOption } = useAudio();
+  const { playSound } = useAudio();
 
   // Theme state
   const [currentTheme, setCurrentTheme] = useState(THEMES[0]);
@@ -212,25 +212,6 @@ export default function App() {
                       {currentTheme.id === item.id && <Text style={{ color: currentTheme.text, fontWeight: 'bold' }}>✓</Text>}
                     </TouchableOpacity>
                   ))}
-                </View>
-
-                {/* Sounds Section */}
-                <View style={styles.section}>
-                  <Text style={[styles.sectionTitle, { color: currentTheme.text }]}>Sounds</Text>
-                  <TouchableOpacity
-                    style={[styles.themeItem, { opacity: selectedOption === AUDIO_OPTIONS.OPTION_1 ? 1 : 0.4 }]}
-                    onPress={() => setSelectedOption(AUDIO_OPTIONS.OPTION_1)}
-                  >
-                    <Text style={{ color: currentTheme.text, flex: 1 }}>Option 1 (Voz Incentivo)</Text>
-                    {selectedOption === AUDIO_OPTIONS.OPTION_1 && <Text style={{ color: currentTheme.text }}>●</Text>}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.themeItem, { opacity: selectedOption === AUDIO_OPTIONS.OPTION_2 ? 1 : 0.4 }]}
-                    onPress={() => setSelectedOption(AUDIO_OPTIONS.OPTION_2)}
-                  >
-                    <Text style={{ color: currentTheme.text, flex: 1 }}>Option 2 (Voz Alerta)</Text>
-                    {selectedOption === AUDIO_OPTIONS.OPTION_2 && <Text style={{ color: currentTheme.text }}>●</Text>}
-                  </TouchableOpacity>
                 </View>
 
                 <TouchableOpacity
