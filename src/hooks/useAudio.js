@@ -33,7 +33,7 @@ export default function useAudio() {
                     staysActiveInBackground: true,
                     interruptionModeIOS: 2,
                     playsInSilentModeIOS: true,
-                    shouldDuckAndroid: true,
+                    shouldDuckAndroid: false, // Initial state: ducking is off
                     interruptionModeAndroid: 2,
                     playThroughEarpieceAndroid: false,
                 });
@@ -51,16 +51,53 @@ export default function useAudio() {
         loadSounds();
 
         return () => {
+            // Cleanup
             if (beepSoundRef.current) beepSoundRef.current.unloadAsync();
             if (voice1Ref.current) voice1Ref.current.unloadAsync();
             if (voice2Ref.current) voice2Ref.current.unloadAsync();
         };
     }, []);
 
+    const resetAudioMode = async () => {
+        try {
+            // Pequeno delay para garantir que o áudio terminou de fato no hardware
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // ESTRATÉGIA AGRESSIVA: Desativar e reativar o motor de áudio.
+            // Isso força o Android a perceber que este app não quer mais o controle do som.
+            await Audio.setIsEnabledAsync(false);
+            await Audio.setIsEnabledAsync(true);
+
+            await Audio.setAudioModeAsync({
+                allowsRecordingIOS: false,
+                staysActiveInBackground: true,
+                interruptionModeIOS: 2,
+                playsInSilentModeIOS: true,
+                shouldDuckAndroid: false,
+                interruptionModeAndroid: 2,
+                playThroughEarpieceAndroid: false,
+            });
+            console.log("Audio focus released and ducking reset.");
+        } catch (e) {
+            console.log('Error resetting audio mode', e);
+        }
+    };
+
     const playSound = async (onComplete) => {
         if (!isLoaded) return;
 
         try {
+            // Activate ducking before playing
+            await Audio.setAudioModeAsync({
+                allowsRecordingIOS: false,
+                staysActiveInBackground: true,
+                interruptionModeIOS: 2,
+                playsInSilentModeIOS: true,
+                shouldDuckAndroid: true, // Enable ducking
+                interruptionModeAndroid: 2,
+                playThroughEarpieceAndroid: false,
+            });
+
             await beepSoundRef.current.replayAsync();
 
             beepSoundRef.current.setOnPlaybackStatusUpdate(async (status) => {
@@ -75,6 +112,7 @@ export default function useAudio() {
                     voiceSound.setOnPlaybackStatusUpdate(async (vStatus) => {
                         if (vStatus.didJustFinish) {
                             voiceSound.setOnPlaybackStatusUpdate(null);
+                            await resetAudioMode(); // Restore Spotify volume
                             if (onComplete) onComplete();
                         }
                     });

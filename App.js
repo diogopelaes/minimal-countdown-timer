@@ -18,7 +18,9 @@ import * as Notifications from 'expo-notifications';
 // Handle notifications when app is in foreground
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowAlert: true, // Legacy support
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldVibrate: true,
   }),
