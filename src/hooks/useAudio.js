@@ -1,63 +1,105 @@
 import { useState, useEffect, useRef } from 'react';
 import { Audio } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+export const AUDIO_OPTIONS = {
+    OPTION_1: 'OPTION_1', // so-proud + break-over
+    OPTION_2: 'OPTION_2', // so-proud + times-up
+};
 
 export default function useAudio() {
-    const [sound, setSound] = useState(null);
+    const [selectedOption, setSelectedOption] = useState(AUDIO_OPTIONS.OPTION_1);
+
+    const beepSoundRef = useRef(new Audio.Sound());
+    const voice1Ref = useRef(new Audio.Sound());
+    const voice2Ref = useRef(new Audio.Sound());
+    const [isLoaded, setIsLoaded] = useState(false);
 
     useEffect(() => {
-        // Configure audio mode for background playback
-        Audio.setAudioModeAsync({
-            allowsRecordingIOS: false,
-            staysActiveInBackground: true,
-            interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DUCK_OTHERS,
-            playsInSilentModeIOS: true,
-            shouldDuckAndroid: true,
-            interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DUCK_OTHERS,
-            playThroughEarpieceAndroid: false,
+        AsyncStorage.getItem('@audio_option').then((val) => {
+            if (val) setSelectedOption(val);
         });
+    }, []);
+
+    useEffect(() => {
+        AsyncStorage.setItem('@audio_option', selectedOption);
+    }, [selectedOption]);
+
+    useEffect(() => {
+        async function loadSounds() {
+            try {
+                await Audio.setAudioModeAsync({
+                    allowsRecordingIOS: false,
+                    staysActiveInBackground: true,
+                    interruptionModeIOS: 2,
+                    playsInSilentModeIOS: true,
+                    shouldDuckAndroid: true,
+                    interruptionModeAndroid: 2,
+                    playThroughEarpieceAndroid: false,
+                });
+
+                await beepSoundRef.current.loadAsync(require('../../assets/so-proud.mp3'));
+                await voice1Ref.current.loadAsync(require('../../assets/break-over.mp3'));
+                await voice2Ref.current.loadAsync(require('../../assets/times-up.mp3'));
+
+                setIsLoaded(true);
+            } catch (error) {
+                console.error("Failed to preload sounds", error);
+            }
+        }
+
+        loadSounds();
 
         return () => {
-            if (sound) {
-                sound.unloadAsync();
-            }
+            if (beepSoundRef.current) beepSoundRef.current.unloadAsync();
+            if (voice1Ref.current) voice1Ref.current.unloadAsync();
+            if (voice2Ref.current) voice2Ref.current.unloadAsync();
         };
-    }, [sound]);
+    }, []);
 
-    const playSound = async () => {
+    const playSound = async (onComplete) => {
+        if (!isLoaded) return;
+
         try {
-            // Unload previous sound if any
-            if (sound) {
-                await sound.unloadAsync();
-            }
+            await beepSoundRef.current.replayAsync();
 
-            // Load and play a default sound
-            // Ideally we have a file asset. For now, we can use a standard beep or require a local file.
-            // Since I don't have a file yet, I will try to use a default expo asset or just placeholder.
-            // NOTE: User spec implies "Som ao finalizar". I should create a simple sound or use something available.
-            // I'll assume we'll add an asset later or use a standard one.
-            // For now, let's assume we have 'assets/alarm.mp3' or similar. 
-            // I'll create a placeholder for the asset require.
+            beepSoundRef.current.setOnPlaybackStatusUpdate(async (status) => {
+                // Se faltar menos de 800ms para acabar o beep, já inicia a voz para evitar o silêncio
+                if (status.isPlaying && status.durationMillis && (status.durationMillis - status.positionMillis < 800)) {
+                    beepSoundRef.current.setOnPlaybackStatusUpdate(null);
 
-            // Using a simple notification sound from a public CDN
-            const { sound: newSound } = await Audio.Sound.createAsync(
-                { uri: 'https://notificationsounds.com/storage/sounds/file-sounds-1150-pristine.mp3' }
-            );
+                    const voiceSound = selectedOption === AUDIO_OPTIONS.OPTION_1 ? voice1Ref.current : voice2Ref.current;
+                    await voiceSound.replayAsync();
 
-            setSound(newSound);
-            await newSound.playAsync();
-        } catch (e) {
-            console.log('Error playing sound', e);
+                    // Quando a voz terminar, chama o reset do timer
+                    voiceSound.setOnPlaybackStatusUpdate(async (vStatus) => {
+                        if (vStatus.didJustFinish) {
+                            voiceSound.setOnPlaybackStatusUpdate(null);
+                            if (onComplete) onComplete();
+                        }
+                    });
+                }
+            });
+
+        } catch (error) {
+            console.error("Playback error", error);
         }
     };
 
     const stopSound = async () => {
-        if (sound) {
-            await sound.stopAsync();
-        }
+        try {
+            if (isLoaded) {
+                await beepSoundRef.current.stopAsync();
+                await voice1Ref.current.stopAsync();
+                await voice2Ref.current.stopAsync();
+            }
+        } catch (e) { }
     };
 
     return {
         playSound,
         stopSound,
+        selectedOption,
+        setSelectedOption
     };
 }

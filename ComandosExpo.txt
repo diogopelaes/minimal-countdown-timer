@@ -5,7 +5,6 @@ npx eas-cli build -p android --profile production
 npx eas-cli build -p android --profile preview
 
 # ver com Expo Go
-npx expo start
+"Y" | npx expo start
 
 # Link para instalar no celular
-https://expo.dev/accounts/diogopelaes/projects/minimal-countdown-timer/builds/e28dfa10-d621-45db-a063-370afc7b68fb

@@ -20,8 +20,19 @@
       "permissions": [
         "WAKE_LOCK",
         "FOREGROUND_SERVICE",
-        "vibrate"
+        "vibrate",
+        "POST_NOTIFICATIONS"
       ],
+      "notifications": {
+        "icon": "./assets/icon.png",
+        "color": "#FF8C00",
+        "importance": "high"
+      },
+      "extra": {
+        "eas": {
+          "projectId": "minimal-countdown-timer"
+        }
+      },
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"

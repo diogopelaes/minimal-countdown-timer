@@ -1,15 +1,28 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View, Text, TouchableOpacity, Modal, FlatList, SafeAreaView } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Modal, SafeAreaView, ScrollView, Platform, LogBox } from 'react-native';
 import { useKeepAwake } from 'expo-keep-awake';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+
+// Silence the Expo Go push notification warning as we only use local notifications
+LogBox.ignoreLogs(['expo-notifications: Android Push notifications']);
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import useTimer, { TIMER_STATES } from './src/hooks/useTimer';
-import useAudio from './src/hooks/useAudio';
+import useAudio, { AUDIO_OPTIONS } from './src/hooks/useAudio';
 import TimerDisplay from './src/components/TimerDisplay';
 import Controls from './src/components/Controls';
-import { registerBackgroundFetchAsync, unregisterBackgroundFetchAsync } from './src/services/BackgroundTasks';
+import { registerBackgroundFetchAsync } from './src/services/BackgroundTasks';
+import * as Notifications from 'expo-notifications';
+
+// Handle notifications when app is in foreground
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldVibrate: true,
+  }),
+});
 
 const THEMES = [
   { id: 'default', name: 'Midnight Orange', bg: '#0F0F0F', text: '#FF8C00', btn: '#333' },
@@ -20,37 +33,110 @@ const THEMES = [
 
 export default function App() {
   const { minutes, seconds, setMinutes, setSeconds, status, start, pause, reset, adjustTime } = useTimer();
-  const { playSound } = useAudio();
+  const { playSound, selectedOption, setSelectedOption } = useAudio();
 
   // Theme state
   const [currentTheme, setCurrentTheme] = useState(THEMES[0]);
   const [isSettingsVisible, setSettingsVisible] = useState(false);
+  const notificationIdRef = useRef(null);
 
-  // Keep Awake logic
-  useKeepAwake(); // Checks global config, but better to control manually if possible or just rely on component mount. 
-  // expo-keep-awake 's default hook keeps it awake while component is mounted.
-  // Spec says: "While timer is Running: Ativar expo-keep-awake".
-  // So we should conditionally use it. 
-  // However, the hook `useKeepAwake` doesn't take a condition in v13+ (it just works when mounted).
-  // We can use `keepAwake` / `deactivateKeepAwake` functions from the package or conditional rendering of a component that uses the hook.
-  // Actually, standard `useKeepAwake` keeps it awake.
-  // Let's import functions to control it imperatively or use the hook in a sub-component?
-  // The package exports `activateKeepAwake` and `deactivateKeepAwakeAsync`.
-  // Let's use those inside useEffect based on status.
-
-  // Audio on finish
+  // Request Notification Permissions
   useEffect(() => {
-    if (status === TIMER_STATES.FINISHED) {
-      playSound();
-    }
-  }, [status]);
+    async function requestPermissions() {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== 'granted') {
+        console.warn('Notification permissions not granted');
+        return;
+      }
 
-  // Background registration (optional per spec, but good practice if we want fetch)
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('timer-channel', {
+          name: 'Timer Notifications',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#FF8C00',
+        });
+      }
+    }
+    requestPermissions();
+  }, []);
+
+  // Sync Notification with Timer
+  useEffect(() => {
+    async function updateNotification() {
+      if (status === TIMER_STATES.RUNNING) {
+        const titleText = `Time Remaining: ${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+        // 1. Atualiza a notificação "Fixa" na tela de bloqueio
+        const id = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "Minimal Timer Running",
+            body: titleText,
+            android: {
+              channelId: 'timer-channel',
+              sticky: true,
+              ongoing: true,
+              color: '#FF8C00',
+            },
+          },
+          trigger: null,
+        });
+
+        if (notificationIdRef.current) {
+          await Notifications.dismissNotificationAsync(notificationIdRef.current);
+        }
+        notificationIdRef.current = id;
+
+        // 2. Agenda o alarme no sistema para quando o tempo acabar
+        // Isso garante que o celular desperte mesmo se o JS estiver congelado
+        const totalSeconds = minutes * 60 + seconds;
+        if (totalSeconds > 0) {
+          await Notifications.cancelAllScheduledNotificationsAsync();
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: "Time's Up!",
+              body: "Your countdown has finished.",
+              android: {
+                channelId: 'timer-channel',
+                priority: 'max',
+                vibrate: true,
+              },
+            },
+            trigger: { seconds: totalSeconds },
+          });
+        }
+      } else if (status === TIMER_STATES.FINISHED) {
+        // Se o app já estiver ativo, toca a sequência personalizada
+        if (notificationIdRef.current) {
+          await Notifications.dismissNotificationAsync(notificationIdRef.current);
+          notificationIdRef.current = null;
+        }
+
+        playSound(() => {
+          reset();
+        });
+      } else {
+        // IDLE ou PAUSED: Cancela agendamentos e remove notificação fixa
+        await Notifications.cancelAllScheduledNotificationsAsync();
+        if (notificationIdRef.current) {
+          await Notifications.dismissNotificationAsync(notificationIdRef.current);
+          notificationIdRef.current = null;
+        }
+      }
+    }
+
+    updateNotification();
+  }, [status, minutes]);
+
+
+  // Background registration
   useEffect(() => {
     registerBackgroundFetchAsync();
-    return () => {
-      // unregisterBackgroundFetchAsync(); // Keep it running? Spec doesn't require unregister.
-    };
   }, []);
 
   // Theme Persistence
@@ -66,27 +152,19 @@ export default function App() {
   const changeTheme = (theme) => {
     setCurrentTheme(theme);
     AsyncStorage.setItem('@app_theme', theme.id);
-    setSettingsVisible(false);
   };
-
-  // Keep Screen On Effect
-  // We need to import the imperative functions because the hook is unconditional.
-  // Actually, let's verify exact export of expo-keep-awake.
-  // "import { useKeepAwake } from 'expo-keep-awake';" is the hook.
-  // We can condition it by creating a component or just importing functions.
-  // Let's assume we can use the default export or functions.
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={[styles.container, { backgroundColor: currentTheme.bg }]}>
-        <StatusBar style={currentTheme.bg === '#FFFFFF' ? 'dark' : 'light'} />
+        <StatusBar style={currentTheme.bg === '#FFFFFF' ? 'dark-content' : 'light-content'} />
 
         {/* Settings Button */}
         <TouchableOpacity style={styles.settingsBtn} onPress={() => setSettingsVisible(true)}>
           <Text style={[styles.settingsText, { color: currentTheme.text }]}>⚙</Text>
         </TouchableOpacity>
 
-        {/* Keep Awake Logic Component wrapper */}
+        {/* Keep Awake Logic */}
         {status === TIMER_STATES.RUNNING && <KeepAwakeComponent />}
 
         <View style={styles.content}>
@@ -97,13 +175,6 @@ export default function App() {
             isEditable={status !== TIMER_STATES.RUNNING}
           />
 
-          {/* Pass theme colors if needed, or rely on Controls internal styles (which are fixed dark/light? Spec says "Fundo quase preto... Tons suaves de laranja"). 
-                 But Steps 5 says "Temas aplicam instantaneamente". 
-                 So Controls should probably accept colors or we style them here.
-                 I'll wrap Controls or just pass no custom styles for now, but UI might look off on Light theme.
-                 Let's pass color prop for text at least? 
-                 Simple fix: Controls uses default styles, maybe mostly neutral.
-             */}
           <Controls
             status={status}
             onStart={start}
@@ -113,24 +184,60 @@ export default function App() {
           />
         </View>
 
-        {/* Theme Modal */}
-        <Modal visible={isSettingsVisible} animationType="slide" transparent>
+        {/* Settings Modal */}
+        <Modal
+          visible={isSettingsVisible}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => setSettingsVisible(false)}
+        >
           <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, { backgroundColor: currentTheme.btn }]}>
-              <Text style={[styles.modalTitle, { color: currentTheme.text }]}>Select Theme</Text>
-              <FlatList
-                data={THEMES}
-                keyExtractor={item => item.id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity style={styles.themeItem} onPress={() => changeTheme(item)}>
-                    <View style={[styles.colorPreview, { backgroundColor: item.bg, border: 1, borderColor: '#fff' }]} />
-                    <Text style={{ color: currentTheme.text, marginLeft: 10 }}>{item.name}</Text>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={[styles.modalTitle, { color: currentTheme.text }]}>Settings</Text>
+
+                {/* Themes Section */}
+                <View style={styles.section}>
+                  <Text style={[styles.sectionTitle, { color: currentTheme.text }]}>Themes</Text>
+                  {THEMES.map((item) => (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={styles.themeItem}
+                      onPress={() => changeTheme(item)}
+                    >
+                      <View style={[styles.colorPreview, { backgroundColor: item.bg }]} />
+                      <Text style={{ color: currentTheme.text, marginLeft: 12, flex: 1 }}>{item.name}</Text>
+                      {currentTheme.id === item.id && <Text style={{ color: currentTheme.text, fontWeight: 'bold' }}>✓</Text>}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* Sounds Section */}
+                <View style={styles.section}>
+                  <Text style={[styles.sectionTitle, { color: currentTheme.text }]}>Sounds</Text>
+                  <TouchableOpacity
+                    style={[styles.themeItem, { opacity: selectedOption === AUDIO_OPTIONS.OPTION_1 ? 1 : 0.4 }]}
+                    onPress={() => setSelectedOption(AUDIO_OPTIONS.OPTION_1)}
+                  >
+                    <Text style={{ color: currentTheme.text, flex: 1 }}>Option 1 (Voz Incentivo)</Text>
+                    {selectedOption === AUDIO_OPTIONS.OPTION_1 && <Text style={{ color: currentTheme.text }}>●</Text>}
                   </TouchableOpacity>
-                )}
-              />
-              <TouchableOpacity onPress={() => setSettingsVisible(false)} style={styles.closeBtn}>
-                <Text style={{ color: currentTheme.text }}>Close</Text>
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.themeItem, { opacity: selectedOption === AUDIO_OPTIONS.OPTION_2 ? 1 : 0.4 }]}
+                    onPress={() => setSelectedOption(AUDIO_OPTIONS.OPTION_2)}
+                  >
+                    <Text style={{ color: currentTheme.text, flex: 1 }}>Option 2 (Voz Alerta)</Text>
+                    {selectedOption === AUDIO_OPTIONS.OPTION_2 && <Text style={{ color: currentTheme.text }}>●</Text>}
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  onPress={() => setSettingsVisible(false)}
+                  style={[styles.closeBtn, { borderTopWidth: 1, borderTopColor: '#555' }]}
+                >
+                  <Text style={[styles.closeText, { color: currentTheme.text }]}>CLOSE</Text>
+                </TouchableOpacity>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -139,7 +246,6 @@ export default function App() {
   );
 }
 
-// Helper component for conditional hook usage
 function KeepAwakeComponent() {
   useKeepAwake();
   return null;
@@ -154,10 +260,10 @@ const styles = StyleSheet.create({
     top: 50,
     right: 20,
     padding: 10,
-    zIndex: 10,
+    zIndex: 100,
   },
   settingsText: {
-    fontSize: 24,
+    fontSize: 28,
   },
   content: {
     flex: 1,
@@ -166,39 +272,61 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.85)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
-    width: '80%',
-    padding: 20,
-    borderRadius: 10,
-    maxHeight: '50%',
+    width: '85%',
+    maxHeight: '75%',
+    padding: 25,
+    borderRadius: 20,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 24,
+    fontWeight: '900',
     marginBottom: 20,
     textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 2,
+  },
+  section: {
+    marginBottom: 25,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    opacity: 0.6,
   },
   themeItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 15,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#555',
+    paddingVertical: 14,
+    borderBottomWidth: 0.3,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   colorPreview: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#888',
+    borderColor: 'rgba(255,255,255,0.3)',
   },
   closeBtn: {
-    marginTop: 20,
+    marginTop: 10,
+    paddingVertical: 20,
     alignItems: 'center',
-    padding: 10,
+  },
+  closeText: {
+    fontWeight: 'bold',
+    fontSize: 14,
+    letterSpacing: 1,
   },
 });
