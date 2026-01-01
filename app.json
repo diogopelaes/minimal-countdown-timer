@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "minimal-countdown-timer-temp",
-    "slug": "minimal-countdown-timer-temp",
+    "name": "minimal-countdown-timer",
+    "slug": "minimal-countdown-timer",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -16,14 +16,37 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.antigravity.minimalcountdowntimer",
+      "permissions": [
+        "WAKE_LOCK",
+        "FOREGROUND_SERVICE",
+        "vibrate"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true
     },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true,
+            "kotlinVersion": "2.0.21",
+            "gradleChildHeapSize": "4g"
+          }
+        }
+      ]
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4a889490-000d-472f-952b-02e0190983c6"
+      }
     }
   }
 }

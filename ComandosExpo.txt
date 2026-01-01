@@ -1,0 +1,9 @@
+# Gera o .aab para google play
+npx eas-cli build -p android --profile production
+
+# Gera o apk instalável
+npx eas-cli build -p android --profile preview
+
+# ver com Expo Go
+npx expo start
+

@@ -1,5 +1,5 @@
 {
-  "name": "minimal-countdown-timer-temp",
+  "name": "minimal-countdown-timer",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
@@ -9,10 +9,22 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~54.0.30",
+    "expo-av": "~16.0.8",
+    "expo-background-fetch": "~14.0.9",
+    "expo-build-properties": "~1.0.10",
+    "expo-keep-awake": "~15.0.8",
     "expo-status-bar": "~3.0.9",
+    "expo-task-manager": "~14.0.9",
     "react": "19.1.0",
-    "react-native": "0.81.5"
+    "react-native": "0.81.5",
+    "react-native-gesture-handler": "~2.28.0",
+    "react-native-reanimated": "~4.1.1",
+    "react-native-worklets": "0.5.1"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "babel-preset-expo": "^54.0.9"
+  }
 }
